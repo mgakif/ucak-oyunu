@@ -19,7 +19,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   highScore 
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const requestRef = useRef<number>();
+  const requestRef = useRef<number>(null);
   const [isMuted, setIsMuted] = useState(false);
   
   // Game State Refs
@@ -41,13 +41,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const scoreRef = useRef<number>(0);
 
   // Constants
-  const RIVER_WIDTH_PERCENT = 0.7; // Nehri biraz genişletelim
+  const RIVER_WIDTH_PERCENT = 0.7; 
   const PLAYER_XY_SPEED = 5;
   const SPAWN_RATE = 60;
   const PROJECTILE_SPEED = 12;
   const PLAYER_FIRE_RATE = 150; // ms
   const ENEMY_FIRE_RATE = 2000; // ms
-  const FUEL_CONSUMPTION_RATE = 0.06; // Biraz daha hızlı yakıt tükensin
+  const FUEL_CONSUMPTION_RATE = 0.06; 
   const FUEL_REFILL_RATE = 1.2; 
   
   const frameCountRef = useRef<number>(0);
@@ -92,7 +92,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     setScore(0);
   }, [setScore]);
 
-  // Respawn Player after death (if lives > 0)
+  // Respawn Player after death
   const respawnPlayer = () => {
       if (!canvasRef.current) return;
       const canvas = canvasRef.current;
@@ -100,9 +100,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       playerRef.current.y = canvas.height - 100;
       playerRef.current.vx = 0;
       playerRef.current.tilt = 0;
-      invulnerableUntilRef.current = Date.now() + 2000; // 2 seconds invulnerability
-      projectilesRef.current = []; // Clear bullets for safety
-      speedRef.current = 3; // Reset speed slightly
+      invulnerableUntilRef.current = Date.now() + 2000; 
+      projectilesRef.current = []; 
+      speedRef.current = 3; 
   };
 
   // Trigger Instant Game Over
@@ -110,6 +110,36 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       soundManager.stopMusic();
       soundManager.playGameOver();
       setGameState(GameState.GAME_OVER);
+  };
+
+  const handlePlayerDeath = () => {
+      soundManager.playExplosion();
+      createExplosion(playerRef.current.x, playerRef.current.y, '#3b82f6', 30);
+      
+      livesRef.current -= 1;
+      
+      if (livesRef.current <= 0) {
+          triggerGameOver();
+      } else {
+          if (fuelRef.current <= 0) fuelRef.current = 100;
+          respawnPlayer();
+      }
+  };
+
+  const createExplosion = (x: number, y: number, color: string, count: number = 20) => {
+      for(let i=0; i<count; i++) {
+          particlesRef.current.push({
+              x: x,
+              y: y,
+              width: 6,
+              height: 6,
+              color: color,
+              vx: (Math.random() - 0.5) * 10,
+              vy: (Math.random() - 0.5) * 10,
+              life: 40 + Math.random() * 20,
+              maxLife: 60
+          });
+      }
   };
 
   // Input Handling
@@ -165,7 +195,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
               y: playerRef.current.y,
               width: 6,
               height: 12,
-              color: '#facc15', // Yellow
+              color: '#facc15', 
               vx: 0,
               vy: -PROJECTILE_SPEED,
               isEnemy: false
@@ -197,7 +227,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       let targetTilt = 0;
       if (isLeft) {
         playerRef.current.x -= moveSpeed;
-        targetTilt = -0.3; // Uçak yatışı
+        targetTilt = -0.3; 
       }
       if (isRight) {
         playerRef.current.x += moveSpeed;
@@ -206,12 +236,16 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       const currentTilt = playerRef.current.tilt || 0;
       playerRef.current.tilt = currentTilt + (targetTilt - currentTilt) * 0.1;
 
-      // --- 2. CONSTRAINTS ---
+      // --- 2. CONSTRAINTS (Kıyıya Çarpma) ---
       const riverX = (canvas.width * (1 - RIVER_WIDTH_PERCENT)) / 2;
       const riverRight = canvas.width - riverX;
       
-      if (playerRef.current.x < riverX) playerRef.current.x = riverX;
-      if (playerRef.current.x + playerRef.current.width > riverRight) playerRef.current.x = riverRight - playerRef.current.width;
+      // Kıyıya çarpma ölümü (Invulnerability yokken)
+      if (now > invulnerableUntilRef.current) {
+          if (playerRef.current.x < riverX || playerRef.current.x + playerRef.current.width > riverRight) {
+              handlePlayerDeath();
+          }
+      }
       
       if (playerRef.current.y < 20) playerRef.current.y = 20;
       if (playerRef.current.y + playerRef.current.height > canvas.height - 20) {
@@ -241,69 +275,75 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         let vx = 0;
         let spawnX = 0;
 
-        // Ensure spawning inside river for ships/helis, on banks for shooters
         const riverAvailableWidth = riverRight - riverX - obsWidth;
 
-        // EXTRA LIFE: 2%
         if (typeRoll < 0.02) {
              type = ObstacleType.LIFE;
              color = '#ef4444';
              obsWidth = 30; obsHeight = 30;
              spawnX = riverX + Math.random() * riverAvailableWidth;
         }
-        // Fuel: 10%
         else if (typeRoll < 0.12) {
             type = ObstacleType.FUEL;
             color = '#f59e0b'; 
             obsWidth = 40; obsHeight = 60; 
             spawnX = riverX + Math.random() * riverAvailableWidth;
         } 
-        // Oil (Slow): 5%
         else if (difficultyLevel >= 1 && typeRoll < 0.17) {
             type = ObstacleType.SLOW;
             color = '#7e22ce';
             obsWidth = 50 + Math.random() * 20;
             spawnX = riverX + Math.random() * riverAvailableWidth;
         } 
-        // Ships: 25%
-        else if (typeRoll < 0.42) {
+        // ADA (STATIC): Yol ayrımı yaratır
+        else if (difficultyLevel >= 1 && typeRoll < 0.25) {
+            type = ObstacleType.STATIC;
+            color = '#064e3b'; // Kara parçası rengi
+            obsWidth = 80 + Math.random() * 60;
+            obsHeight = 100 + Math.random() * 150;
+            // Nehrin tam ortasında veya yakınında spawn olur
+            spawnX = (canvas.width / 2) - (obsWidth / 2) + (Math.random() - 0.5) * 40;
+        }
+        else if (typeRoll < 0.50) {
              type = ObstacleType.SHIP;
              color = '#1e40af'; 
              obsWidth = 30; obsHeight = 60;
              vx = (Math.random() - 0.5) * 0.5;
              spawnX = riverX + Math.random() * riverAvailableWidth;
         }
-        // Helicopters: 20%
-        else if (typeRoll < 0.62) {
+        else if (typeRoll < 0.70) {
             type = ObstacleType.MOVING;
             color = '#be123c';
             obsWidth = 40; obsHeight = 40;
             vx = (Math.random() > 0.5 ? 1 : -1) * (1 + Math.random() * 2);
             spawnX = riverX + Math.random() * riverAvailableWidth;
         } 
-        // Enemy Jets (Fast Moving): 10% (New Enemy)
-        else if (difficultyLevel >= 2 && typeRoll < 0.72) {
-             type = ObstacleType.MOVING; // Reusing MOVING type but fast
-             color = '#000000'; // Black Jet
+        else if (difficultyLevel >= 2 && typeRoll < 0.80) {
+             type = ObstacleType.MOVING; 
+             color = '#000000'; 
              obsWidth = 30; obsHeight = 30;
-             vx = (Math.random() > 0.5 ? 1 : -1) * 3; // Fast strafe
+             vx = (Math.random() > 0.5 ? 1 : -1) * 3; 
              spawnX = riverX + Math.random() * riverAvailableWidth;
         }
-        // Tanks (Shooters): 20% (On River Banks)
-        else {
+        // TANK (SHOOTER) olasılığı azaltıldı (Sadece %5 civarı)
+        else if (typeRoll < 0.85) {
             type = ObstacleType.SHOOTER;
             color = '#15803d';
             obsWidth = 35; obsHeight = 35;
             if (Math.random() > 0.5) {
-                spawnX = Math.random() * (riverX - obsWidth - 10); // Sol kıyı
+                spawnX = Math.random() * (riverX - obsWidth - 10); 
             } else {
-                spawnX = riverRight + 10 + Math.random() * (canvas.width - riverRight - obsWidth - 10); // Sağ kıyı
+                spawnX = riverRight + 10 + Math.random() * (canvas.width - riverRight - obsWidth - 10); 
             }
+        }
+        else {
+            // Hiçbir şey spawn etme, yolu boş bırak
+            return;
         }
 
         obstaclesRef.current.push({
           x: spawnX,
-          y: -100,
+          y: -obsHeight - 50,
           width: obsWidth,
           height: obsHeight,
           color: color,
@@ -316,7 +356,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       // --- 4. PROJECTILES UPDATE ---
       for (let i = projectilesRef.current.length - 1; i >= 0; i--) {
           const proj = projectilesRef.current[i];
-          if (!proj) continue; // Safety Check
+          if (!proj) continue; 
 
           proj.x += proj.vx;
           proj.y += proj.vy;
@@ -326,12 +366,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
               continue;
           }
 
-          // Player Bullet Hits
           if (!proj.isEnemy) {
               let hit = false;
               for (let j = obstaclesRef.current.length - 1; j >= 0; j--) {
                   const obs = obstaclesRef.current[j];
-                  if (!obs) continue; // Safety Check
+                  if (!obs) continue; 
 
                   if (
                       proj.x < obs.x + obs.width &&
@@ -341,7 +380,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                   ) {
                       hit = true;
                       if (obs.type === ObstacleType.STATIC) {
-                          createExplosion(proj.x, proj.y, '#fbbf24', 5);
+                          // Adaya çarpınca mermi kaybolur ama ada patlamaz
+                          createExplosion(proj.x, proj.y, '#064e3b', 3);
                       } else if (obs.type === ObstacleType.FUEL) {
                           createExplosion(proj.x, proj.y, '#f59e0b', 5);
                           scoreRef.current += 25; 
@@ -351,7 +391,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                           createExplosion(proj.x, proj.y, '#ef4444', 5);
                           obstaclesRef.current.splice(j, 1);
                       } else if (obs.type !== ObstacleType.SLOW) {
-                          // Enemy hit
                           createExplosion(obs.x + obs.width/2, obs.y + obs.height/2, '#ef4444', 15);
                           soundManager.playExplosion();
                           scoreRef.current += (obs.type === ObstacleType.SHOOTER || obs.type === ObstacleType.SHIP ? 100 : 50);
@@ -365,7 +404,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                   projectilesRef.current.splice(i, 1);
               }
           } 
-          // Enemy Bullet Hits Player
           else {
               if (
                   playerRef.current &&
@@ -384,20 +422,17 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       // --- 5. OBSTACLE UPDATE & COLLISION ---
       for (let i = obstaclesRef.current.length - 1; i >= 0; i--) {
         const obs = obstaclesRef.current[i];
-        if (!obs) continue; // Safety Check
+        if (!obs) continue; 
 
         obs.y += speedRef.current;
 
-        // Move Moving Obstacles
         if ((obs.type === ObstacleType.MOVING || obs.type === ObstacleType.SHIP) && obs.vx) {
             obs.x += obs.vx;
-            // Bounce off river banks
             if (obs.x <= riverX || obs.x + obs.width >= riverRight) {
                 obs.vx *= -1;
             }
         }
 
-        // ENEMY AI
         if (obs.type === ObstacleType.SHOOTER || obs.type === ObstacleType.SHIP) {
             if (obs.y > 0 && obs.y < canvas.height - 100) { 
                 if (now - (obs.lastShot || 0) > ENEMY_FIRE_RATE) {
@@ -422,7 +457,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             }
         }
 
-        // Collision Check
         const hitBoxPadding = 5;
         const isColliding = 
           playerRef.current &&
@@ -450,27 +484,27 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                     createExplosion(playerRef.current.x, playerRef.current.y, '#a855f7', 5);
                 }
             } else {
-                // Enemy Collision
+                // Enemy veya STATIC ADA çarpışması
                 if (now > invulnerableUntilRef.current) {
                     handlePlayerDeath();
-                    // Destroy enemy on impact
-                    createExplosion(obs.x, obs.y, obs.color);
-                    obstaclesRef.current.splice(i, 1); 
+                    if (obs.type !== ObstacleType.STATIC) {
+                        createExplosion(obs.x, obs.y, obs.color);
+                        obstaclesRef.current.splice(i, 1); 
+                    }
                     continue; 
                 }
             }
         }
 
-        if (obs.y > canvas.height) {
+        if (obs.y > canvas.height + 100) {
           obstaclesRef.current.splice(i, 1);
-          if (obs.type !== ObstacleType.FUEL && obs.type !== ObstacleType.LIFE) {
+          if (obs.type !== ObstacleType.FUEL && obs.type !== ObstacleType.LIFE && obs.type !== ObstacleType.STATIC) {
              scoreRef.current += Math.floor(10 * (speedRef.current / 3));
              setScore(scoreRef.current);
           }
         }
       }
 
-      // Particles
       for (let i = particlesRef.current.length - 1; i >= 0; i--) {
         const p = particlesRef.current[i];
         if (!p) continue;
@@ -480,7 +514,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         if (p.life <= 0) particlesRef.current.splice(i, 1);
       }
       
-      // JET TRAILS
       if (frameCountRef.current % 2 === 0 && now > invulnerableUntilRef.current) {
           const isSlowed = playerSpeedMultiplierRef.current < 0.8;
           const centerX = playerRef.current.x + playerRef.current.width / 2;
@@ -501,14 +534,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     }
 
     // --- 6. DRAWING ---
-    // Background: Green Land
-    ctx.fillStyle = '#064e3b'; // Dark Green
+    ctx.fillStyle = '#064e3b'; 
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const riverX = (canvas.width * (1 - RIVER_WIDTH_PERCENT)) / 2;
     const riverW = canvas.width * RIVER_WIDTH_PERCENT;
     
-    // River Gradient
     const gradient = ctx.createLinearGradient(riverX, 0, riverX + riverW, 0);
     gradient.addColorStop(0, '#1e3a8a');
     gradient.addColorStop(0.5, '#2563eb');
@@ -516,7 +547,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     ctx.fillStyle = gradient;
     ctx.fillRect(riverX, 0, riverW, canvas.height);
 
-    // River Animation Lines
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
     ctx.lineWidth = 2;
     for (let i = -40; i < canvas.height; i += 40) {
@@ -527,40 +557,39 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         ctx.stroke();
     }
 
-    // Draw Obstacles & Enemies
     obstaclesRef.current.forEach(obs => {
         if (!obs) return;
 
-        if (obs.type === ObstacleType.SLOW) {
-            // Oil Spill
-            ctx.fillStyle = '#1e1b4b'; // Darker oil
+        if (obs.type === ObstacleType.STATIC) {
+            // ADA (Yol Ayrımı)
+            ctx.fillStyle = obs.color;
+            ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+            // Sınır çizgisi
+            ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(obs.x, obs.y, obs.width, obs.height);
+        } else if (obs.type === ObstacleType.SLOW) {
+            ctx.fillStyle = '#1e1b4b'; 
             ctx.globalAlpha = 0.7;
             ctx.beginPath();
             ctx.ellipse(obs.x + obs.width/2, obs.y + obs.height/2, obs.width/2, obs.height/3, 0, 0, Math.PI*2);
             ctx.fill();
             ctx.globalAlpha = 1.0;
-
         } else if (obs.type === ObstacleType.FUEL) {
-            // Fuel Station
             ctx.fillStyle = '#b45309'; 
             ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
-            
             ctx.fillStyle = obs.color; 
             const segmentHeight = (obs.height - 10) / 4;
-            
             ctx.font = 'bold 10px monospace';
             ctx.fillStyle = 'white';
             ctx.textAlign = 'center';
-            
             for(let k=0; k<4; k++) {
                 ctx.fillStyle = '#fbbf24';
                 ctx.fillRect(obs.x + 2, obs.y + 2 + (k * (segmentHeight + 2)), obs.width - 4, segmentHeight);
                 ctx.fillStyle = '#78350f';
                 if (k === 1) ctx.fillText("FUEL", obs.x + obs.width/2, obs.y + 2 + (k * (segmentHeight + 2)) + 12);
             }
-
         } else if (obs.type === ObstacleType.LIFE) {
-            // HEART
             ctx.fillStyle = obs.color;
             ctx.beginPath();
             const topCurveHeight = obs.height * 0.3;
@@ -570,30 +599,21 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             ctx.bezierCurveTo(obs.x + obs.width / 2, obs.y + (obs.height + topCurveHeight) / 2, obs.x + obs.width, obs.y + (obs.height + topCurveHeight) / 2, obs.x + obs.width, obs.y + topCurveHeight);
             ctx.bezierCurveTo(obs.x + obs.width, obs.y, obs.x + obs.width / 2, obs.y, obs.x + obs.width / 2, obs.y + topCurveHeight);
             ctx.fill();
-
         } else if (obs.type === ObstacleType.MOVING) {
-            // HELICOPTER or ENEMY JET
             if (obs.color === '#000000') {
-                 // ENEMY JET (Black)
                  ctx.fillStyle = '#111';
                  ctx.beginPath();
-                 // Triangle shape pointing down
                  ctx.moveTo(obs.x + obs.width/2, obs.y + obs.height); 
                  ctx.lineTo(obs.x + obs.width, obs.y);
                  ctx.lineTo(obs.x, obs.y);
                  ctx.fill();
-                 // Red cockpit
                  ctx.fillStyle = '#991b1b';
                  ctx.fillRect(obs.x + obs.width/2 - 2, obs.y + 2, 4, 6);
             } else {
-                // HELICOPTER
-                // Shadow
                 ctx.fillStyle = 'rgba(0,0,0,0.3)';
                 ctx.beginPath();
                 ctx.ellipse(obs.x + obs.width/2 + 10, obs.y + obs.height/2 + 10, obs.width/2, obs.height/3, 0, 0, Math.PI*2);
                 ctx.fill();
-
-                // Body
                 ctx.fillStyle = obs.color;
                 ctx.beginPath();
                 ctx.ellipse(obs.x + obs.width/2, obs.y + obs.height/2, obs.width/2, obs.height/3, 0, 0, Math.PI*2);
@@ -601,7 +621,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                 ctx.fillRect(obs.x + obs.width/2 - 2, obs.y - 10, 4, obs.height/2);
                 ctx.fillStyle = '#1f2937';
                 ctx.fillRect(obs.x, obs.y + obs.height/2 - 2, obs.width, 4);
-                // Rotor animation
                 if (frameCountRef.current % 4 < 2) {
                     ctx.fillStyle = 'rgba(255,255,255,0.3)';
                     ctx.beginPath();
@@ -609,10 +628,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                     ctx.fill();
                 }
             }
-
         } else if (obs.type === ObstacleType.SHIP) {
-            // SHIP
-            ctx.fillStyle = '#52525b'; // Hull
+            ctx.fillStyle = '#52525b'; 
             ctx.beginPath();
             ctx.moveTo(obs.x + obs.width/2, obs.y + obs.height); 
             ctx.lineTo(obs.x + obs.width, obs.y + obs.height * 0.8);
@@ -622,15 +639,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             ctx.lineTo(obs.x, obs.y + obs.height * 0.8);
             ctx.closePath();
             ctx.fill();
-            // Deck
             ctx.fillStyle = obs.color;
             ctx.fillRect(obs.x + obs.width * 0.2, obs.y + obs.height * 0.3, obs.width * 0.6, obs.height * 0.4);
-            // Bridge
             ctx.fillStyle = '#e4e4e7';
             ctx.fillRect(obs.x + obs.width * 0.3, obs.y + obs.height * 0.6, obs.width * 0.4, obs.height * 0.15);
-
         } else if (obs.type === ObstacleType.SHOOTER) {
-            // TANK (Land)
             ctx.fillStyle = obs.color;
             ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
             ctx.fillStyle = '#064e3b';
@@ -649,7 +662,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         }
     });
 
-    // Draw Projectiles
     projectilesRef.current.forEach(proj => {
         if (!proj) return;
         ctx.fillStyle = proj.color;
@@ -662,7 +674,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         ctx.fill();
     });
 
-    // Draw Player: JET FIGHTER
     const isInvulnerable = now < invulnerableUntilRef.current;
     if (gameState !== GameState.GAME_OVER && (!isInvulnerable || Math.floor(now / 100) % 2 === 0)) {
         const { x, y, width, height, tilt, color } = playerRef.current;
@@ -672,8 +683,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         ctx.save();
         ctx.translate(centerX, centerY);
         ctx.rotate(tilt || 0);
-
-        // Shadow
         ctx.fillStyle = 'rgba(0,0,0,0.3)';
         ctx.beginPath();
         ctx.moveTo(10, -height/2 + 20);
@@ -681,18 +690,14 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         ctx.lineTo(0 + 10, height/2 - 10 + 10);
         ctx.lineTo(-width/2 + 10, height/2 + 10);
         ctx.fill();
-
-        // Fuselage
         ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.moveTo(0, -height/2); // Nose
-        ctx.lineTo(width/2, height/2); // Right Wing tip
-        ctx.lineTo(0, height/2 - 10); // Tail notch
-        ctx.lineTo(-width/2, height/2); // Left Wing tip
+        ctx.moveTo(0, -height/2); 
+        ctx.lineTo(width/2, height/2); 
+        ctx.lineTo(0, height/2 - 10); 
+        ctx.lineTo(-width/2, height/2); 
         ctx.closePath();
         ctx.fill();
-
-        // Cockpit
         ctx.fillStyle = '#1e3a8a';
         ctx.beginPath();
         ctx.moveTo(0, -height/4);
@@ -700,12 +705,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         ctx.lineTo(0, height/6);
         ctx.lineTo(-width/6, 0);
         ctx.fill();
-
-        // Red stripes
         ctx.fillStyle = '#ef4444';
         ctx.fillRect(-width/4, height/4, width/8, height/4);
         ctx.fillRect(width/8, height/4, width/8, height/4);
-
         ctx.restore();
 
         if (playerSpeedMultiplierRef.current < 0.9) {
@@ -724,37 +726,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     });
 
     requestRef.current = requestAnimationFrame(loop);
-  }, [gameState, setScore, setGameState]);
-
-  const handlePlayerDeath = () => {
-      soundManager.playExplosion();
-      createExplosion(playerRef.current.x, playerRef.current.y, '#3b82f6', 30);
-      
-      livesRef.current -= 1;
-      
-      if (livesRef.current <= 0) {
-          triggerGameOver();
-      } else {
-          if (fuelRef.current <= 0) fuelRef.current = 100;
-          respawnPlayer();
-      }
-  };
-
-  const createExplosion = (x: number, y: number, color: string, count: number = 20) => {
-      for(let i=0; i<count; i++) {
-          particlesRef.current.push({
-              x: x,
-              y: y,
-              width: 6,
-              height: 6,
-              color: color,
-              vx: (Math.random() - 0.5) * 10,
-              vy: (Math.random() - 0.5) * 10,
-              life: 40 + Math.random() * 20,
-              maxLife: 60
-          });
-      }
-  };
+  }, [gameState, setScore, setGameState, handlePlayerDeath]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -791,7 +763,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     <div className="relative w-full h-full bg-gray-900 overflow-hidden flex justify-center shadow-2xl border-x-4 border-gray-800">
       <canvas ref={canvasRef} className="block bg-gray-900" />
       
-      {/* Sound Control */}
       <button 
         onClick={toggleMute}
         className="absolute top-4 right-4 z-20 p-2 bg-gray-800/80 rounded-full text-white hover:bg-gray-700 transition"
@@ -800,7 +771,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
       </button>
 
-      {/* UI Overlay */}
       {gameState === GameState.MENU && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 backdrop-blur-sm z-10 p-6 text-center">
             <h1 className="pixel-font text-3xl md:text-5xl text-yellow-400 mb-8 drop-shadow-[0_4px_0_rgba(0,0,0,1)] animate-pulse leading-relaxed">
@@ -854,20 +824,17 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         </div>
       )}
       
-      {/* In-game HUD */}
       {gameState === GameState.PLAYING && (
           <div className="absolute top-0 left-0 right-0 p-4 pointer-events-none flex flex-col gap-2">
-              {/* Top Row: Score and Highscore */}
               <div className="flex justify-between items-start">
                   <div className="flex flex-col">
                       <span className="text-xs text-blue-200 uppercase font-bold tracking-wider">SKOR</span>
                       <span className="text-2xl font-mono font-bold text-white drop-shadow-md">{score}</span>
                   </div>
                   
-                  {/* Lives & Warnings */}
                   <div className="flex flex-col items-center gap-2">
                       <div className="flex gap-1">
-                          {[...Array(Math.min(5, livesRef.current))].map((_, i) => (
+                          {[...Array(Math.max(0, Math.min(5, livesRef.current)))].map((_, i) => (
                               <Heart 
                                   key={i} 
                                   className={`w-6 h-6 fill-red-500 text-red-600`} 
@@ -888,18 +855,16 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                   </div>
               </div>
 
-              {/* Bottom Row (of HUD): Fuel Gauge */}
               <div className="w-full max-w-md mx-auto bg-gray-800/80 rounded-full h-6 border-2 border-gray-600 relative overflow-hidden">
                   <div className="absolute inset-y-0 left-0 bg-gradient-to-r from-red-600 via-yellow-500 to-green-500 transition-all duration-200"
-                       style={{ width: `${fuelRef.current}%` }}></div>
+                       style={{ width: `${Math.max(0, fuelRef.current)}%` }}></div>
                   <div className="absolute inset-0 flex items-center justify-center text-xs font-bold text-white drop-shadow-md tracking-wider gap-2">
-                       <Fuel className="w-3 h-3" /> FUEL {Math.floor(fuelRef.current)}%
+                       <Fuel className="w-3 h-3" /> FUEL {Math.floor(Math.max(0, fuelRef.current))}%
                   </div>
               </div>
           </div>
       )}
       
-      {/* Mobile Shoot Button & Controls */}
       {gameState === GameState.PLAYING && (
         <>
             <div className="absolute bottom-10 right-8 md:hidden z-20">
@@ -935,7 +900,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         </>
       )}
       
-      {/* Mobile Touch Controls Overlay (Invisible) */}
       {gameState === GameState.PLAYING && (
          <div className="absolute inset-0 md:hidden z-0 grid grid-rows-3 grid-cols-3 pointer-events-auto">
              <div className="col-start-1 col-span-2 row-start-1 active:bg-white/5"
