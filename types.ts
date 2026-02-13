@@ -1,17 +1,23 @@
 export enum GameState {
+  LOGIN = 'LOGIN',
   MENU = 'MENU',
   PLAYING = 'PLAYING',
   GAME_OVER = 'GAME_OVER'
 }
 
 export enum ObstacleType {
-  STATIC = 'STATIC', // Dağ (Vurulamaz, Anında Öldürür)
-  MOVING = 'MOVING', // Helikopter (Vurulabilir)
-  SHIP = 'SHIP',     // Gemi (Vurulabilir, Ateş eder)
-  SLOW = 'SLOW',     // Petrol (Yavaşlatıcı)
-  FUEL = 'FUEL',     // Yakıt İstasyonu
-  SHOOTER = 'SHOOTER', // Tank (Ateş eden)
-  LIFE = 'LIFE'      // Ekstra Can
+  STATIC = 'STATIC', 
+  MOVING = 'MOVING', 
+  SHIP = 'SHIP',     
+  SLOW = 'SLOW',     
+  FUEL = 'FUEL',     
+  SHOOTER = 'SHOOTER', 
+  LIFE = 'LIFE'      
+}
+
+export interface LeaderboardEntry {
+  username: string;
+  score: number;
 }
 
 export interface Point {
@@ -27,15 +33,15 @@ export interface Entity {
   color: string;
   speed?: number;
   type?: ObstacleType;
-  vx?: number; // Yatay hız
-  tilt?: number; // Uçak yatış açısı
-  lastShot?: number; // Son ateş etme zamanı
+  vx?: number; 
+  tilt?: number; 
+  lastShot?: number; 
 }
 
 export interface Projectile extends Entity {
   vx: number;
   vy: number;
-  isEnemy: boolean; // Düşman mermisi mi?
+  isEnemy: boolean; 
 }
 
 export interface Particle extends Entity {
