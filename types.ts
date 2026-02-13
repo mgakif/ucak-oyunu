@@ -6,13 +6,17 @@ export enum GameState {
 }
 
 export enum ObstacleType {
-  STATIC = 'STATIC', 
-  MOVING = 'MOVING', 
-  SHIP = 'SHIP',     
-  SLOW = 'SLOW',     
-  FUEL = 'FUEL',     
-  SHOOTER = 'SHOOTER', 
-  LIFE = 'LIFE'      
+  STATIC = 'STATIC',
+  MOVING = 'MOVING',
+  SHIP = 'SHIP',
+  SLOW = 'SLOW',
+  FUEL = 'FUEL',
+  SHOOTER = 'SHOOTER',
+  LIFE = 'LIFE',
+  TANK = 'TANK',           // Tank enemy that shoots
+  HELPER_PLANES = 'HELPER_PLANES',  // Power-up: side helper planes
+  GUIDED_ROCKET = 'GUIDED_ROCKET',  // Power-up: guided missiles
+  SHIELD = 'SHIELD'        // Power-up: temporary shield
 }
 
 export interface LeaderboardEntry {
@@ -49,4 +53,15 @@ export interface Particle extends Entity {
   vy: number;
   life: number;
   maxLife: number;
+}
+
+export interface PowerUp {
+  type: 'HELPER_PLANES' | 'GUIDED_ROCKET' | 'SHIELD';
+  expiresAt: number;
+}
+
+export interface HelperPlane extends Entity {
+  side: 'left' | 'right';
+  offsetY: number;
+  lastShot: number;
 }
