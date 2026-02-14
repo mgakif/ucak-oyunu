@@ -243,6 +243,48 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     drawPixelSprite(ctx, x, y, 4, miniPlaneGrid);
   };
 
+  const drawMiniBoss = (ctx: CanvasRenderingContext2D, obs: Entity) => {
+    const D = '#7c2d12'; // Dark red/brown
+    const R = '#dc2626'; // Red
+    const O = '#ea580c'; // Orange
+    const Y = '#facc15'; // Yellow
+    const G = '#6b7280'; // Gray
+    const T = 'T';
+
+    const bossGrid = [
+      [T, T, T, D, D, D, D, T, T, T],
+      [T, T, D, R, R, R, R, D, T, T],
+      [T, D, R, O, Y, Y, O, R, D, T],
+      [D, R, R, Y, G, G, Y, R, R, D],
+      [D, R, O, Y, G, G, Y, O, R, D],
+      [D, R, R, R, R, R, R, R, R, D],
+      [T, D, R, R, R, R, R, R, D, T],
+      [T, T, D, D, R, R, D, D, T, T],
+      [T, T, T, D, D, D, D, T, T, T]
+    ];
+    drawPixelSprite(ctx, obs.x - 10, obs.y - 5, 6, bossGrid);
+
+    // Draw health bar
+    if (obs.health && obs.maxHealth) {
+      const barWidth = 50;
+      const barHeight = 4;
+      const healthPercent = obs.health / obs.maxHealth;
+
+      // Background
+      ctx.fillStyle = '#1f2937';
+      ctx.fillRect(obs.x - 5, obs.y - 15, barWidth, barHeight);
+
+      // Health
+      ctx.fillStyle = healthPercent > 0.5 ? '#10b981' : (healthPercent > 0.25 ? '#f59e0b' : '#ef4444');
+      ctx.fillRect(obs.x - 5, obs.y - 15, barWidth * healthPercent, barHeight);
+
+      // Border
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(obs.x - 5, obs.y - 15, barWidth, barHeight);
+    }
+  };
+
   // --- GAME LOGIC ---
 
   const createExplosion = useCallback((x: number, y: number, color: string, count: number = 20) => {
@@ -330,27 +372,31 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     
     // Shoot
     if (isShooting && now - (playerRef.current.lastShot || 0) > PLAYER_FIRE_RATE) {
+      // Player shoots
       projectilesRef.current.push({
         x: playerRef.current.x + 18, y: playerRef.current.y,
         width: 4, height: 12, color: '#fde047', vx: 0, vy: -PROJECTILE_SPEED, isEnemy: false
       });
       playerRef.current.lastShot = now;
       soundManager.playShoot();
+
+      // Helper planes shoot when player shoots
+      helperPlanesRef.current.forEach((helper) => {
+        if (now - helper.lastShot > PLAYER_FIRE_RATE) {
+          projectilesRef.current.push({
+            x: helper.x + 4, y: helper.y,
+            width: 3, height: 8, color: '#3b82f6', vx: 0, vy: -PROJECTILE_SPEED, isEnemy: false
+          });
+          helper.lastShot = now;
+        }
+      });
     }
 
-    // Update Helper Planes
+    // Update Helper Planes positions
     helperPlanesRef.current.forEach((helper, idx) => {
-      helper.x = playerRef.current.x + (helper.side === 'left' ? -25 : 65);
+      const xOffset = helper.side === 'left' ? -25 : 65;
+      helper.x = playerRef.current.x + xOffset;
       helper.y = playerRef.current.y + helper.offsetY;
-
-      // Helper planes auto-shoot
-      if (now - helper.lastShot > PLAYER_FIRE_RATE * 1.5) {
-        projectilesRef.current.push({
-          x: helper.x + 4, y: helper.y,
-          width: 3, height: 8, color: '#3b82f6', vx: 0, vy: -PROJECTILE_SPEED, isEnemy: false
-        });
-        helper.lastShot = now;
-      }
     });
 
     // Clean up expired power-ups
@@ -381,6 +427,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       const typeRoll = Math.random();
       const spawnX = riverX + 10 + Math.random() * (riverRight - riverX - 50);
       let type = ObstacleType.SHIP;
+      let health = undefined;
+      let maxHealth = undefined;
 
       // Collectibles and power-ups
       if (typeRoll < 0.08) type = ObstacleType.FUEL;
@@ -389,8 +437,14 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       else if (typeRoll < 0.18) type = ObstacleType.GUIDED_ROCKET;
       else if (typeRoll < 0.21) type = ObstacleType.SHIELD;
       // Enemies
-      else if (typeRoll < 0.85) type = ObstacleType.SHIP;
-      else type = ObstacleType.TANK;
+      else if (typeRoll < 0.83) type = ObstacleType.SHIP;
+      else if (typeRoll < 0.90) type = ObstacleType.TANK;
+      else {
+        // Mini boss - spawn every ~10 enemies
+        type = ObstacleType.MINI_BOSS;
+        health = 5;
+        maxHealth = 5;
+      }
 
       obstaclesRef.current.push({
         x: spawnX,
@@ -400,7 +454,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         color: '',
         type,
         vx: (Math.random()-0.5)*2,
-        lastShot: 0
+        lastShot: 0,
+        health,
+        maxHealth
       });
     }
 
@@ -426,6 +482,26 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         }
       }
 
+      // Mini bosses shoot more frequently
+      if (obs.type === ObstacleType.MINI_BOSS && obs.y > 0 && obs.y < canvas.height - 100) {
+        if (now - (obs.lastShot || 0) > 1000) {
+          const dx = playerRef.current.x - obs.x;
+          const dy = playerRef.current.y - obs.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          // Shoot 2 projectiles in a spread pattern
+          for (let i = 0; i < 2; i++) {
+            const angle = Math.atan2(dy, dx) + (i - 0.5) * 0.3;
+            projectilesRef.current.push({
+              x: obs.x + 20, y: obs.y + 20,
+              width: 8, height: 8, color: '#dc2626',
+              vx: Math.cos(angle) * 10, vy: Math.sin(angle) * 10, isEnemy: true
+            });
+          }
+          obs.lastShot = now;
+          soundManager.playShoot();
+        }
+      }
+
       // Collision
       if (Math.abs(playerRef.current.x - obs.x) < 30 && Math.abs(playerRef.current.y - obs.y) < 30) {
         if (obs.type === ObstacleType.FUEL) {
@@ -437,11 +513,35 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
           soundManager.playOneUp();
           obstaclesRef.current.splice(i, 1);
         } else if (obs.type === ObstacleType.HELPER_PLANES) {
-          activePowerUpsRef.current.push({ type: 'HELPER_PLANES', expiresAt: now + 15000 });
-          helperPlanesRef.current = [
-            { x: 0, y: 0, width: 12, height: 12, color: '#3b82f6', side: 'left', offsetY: -30, lastShot: 0 },
-            { x: 0, y: 0, width: 12, height: 12, color: '#3b82f6', side: 'right', offsetY: -30, lastShot: 0 }
-          ];
+          // Add or extend helper planes (max 4)
+          const existingHelperPowerUp = activePowerUpsRef.current.find(pu => pu.type === 'HELPER_PLANES');
+          if (existingHelperPowerUp) {
+            // Extend duration
+            existingHelperPowerUp.expiresAt = Math.max(existingHelperPowerUp.expiresAt, now) + 15000;
+          } else {
+            activePowerUpsRef.current.push({ type: 'HELPER_PLANES', expiresAt: now + 15000 });
+          }
+
+          // Add helpers if less than 4
+          if (helperPlanesRef.current.length < 4) {
+            const newHelpers = [];
+            const currentCount = helperPlanesRef.current.length;
+
+            if (currentCount === 0) {
+              newHelpers.push(
+                { x: 0, y: 0, width: 12, height: 12, color: '#3b82f6', side: 'left' as const, offsetY: -30, lastShot: 0 },
+                { x: 0, y: 0, width: 12, height: 12, color: '#3b82f6', side: 'right' as const, offsetY: -30, lastShot: 0 }
+              );
+            } else if (currentCount === 2) {
+              newHelpers.push(
+                { x: 0, y: 0, width: 12, height: 12, color: '#3b82f6', side: 'left' as const, offsetY: -50, lastShot: 0 },
+                { x: 0, y: 0, width: 12, height: 12, color: '#3b82f6', side: 'right' as const, offsetY: -50, lastShot: 0 }
+              );
+            }
+
+            helperPlanesRef.current.push(...newHelpers);
+          }
+
           soundManager.playCollect();
           obstaclesRef.current.splice(i, 1);
         } else if (obs.type === ObstacleType.GUIDED_ROCKET) {
@@ -464,7 +564,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       const hasGuidedRocket = activePowerUpsRef.current.find(pu => pu.type === 'GUIDED_ROCKET');
       if (!p.isEnemy && hasGuidedRocket && p.color === '#fde047') {
         const enemies = obstaclesRef.current.filter(o =>
-          o.type === ObstacleType.SHIP || o.type === ObstacleType.TANK
+          o.type === ObstacleType.SHIP || o.type === ObstacleType.TANK || o.type === ObstacleType.MINI_BOSS
         );
         if (enemies.length > 0) {
           let closest = enemies[0];
@@ -502,17 +602,31 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       if (!p.isEnemy) {
         obstaclesRef.current.forEach((obs, oi) => {
           if (Math.abs(p.x - obs.x) < 30 && Math.abs(p.y - obs.y) < 30) {
-            createExplosion(obs.x, obs.y, '#f97316', 15);
-            obstaclesRef.current.splice(oi, 1);
             projectilesRef.current.splice(pi, 1);
-            // Only award points for destroying enemies, not collectibles
-            if (obs.type !== ObstacleType.FUEL && obs.type !== ObstacleType.LIFE &&
-                obs.type !== ObstacleType.HELPER_PLANES && obs.type !== ObstacleType.GUIDED_ROCKET &&
-                obs.type !== ObstacleType.SHIELD) {
-              scoreRef.current += 100;
-              setScore(scoreRef.current);
+
+            // Mini boss has health
+            if (obs.type === ObstacleType.MINI_BOSS && obs.health) {
+              obs.health -= 1;
+              createExplosion(obs.x, obs.y, '#f97316', 5);
+              if (obs.health <= 0) {
+                createExplosion(obs.x, obs.y, '#dc2626', 30);
+                obstaclesRef.current.splice(oi, 1);
+                scoreRef.current += 500; // More points for mini boss
+                setScore(scoreRef.current);
+                soundManager.playExplosion();
+              }
+            } else {
+              createExplosion(obs.x, obs.y, '#f97316', 15);
+              obstaclesRef.current.splice(oi, 1);
+              // Only award points for destroying enemies, not collectibles
+              if (obs.type !== ObstacleType.FUEL && obs.type !== ObstacleType.LIFE &&
+                  obs.type !== ObstacleType.HELPER_PLANES && obs.type !== ObstacleType.GUIDED_ROCKET &&
+                  obs.type !== ObstacleType.SHIELD) {
+                scoreRef.current += 100;
+                setScore(scoreRef.current);
+              }
+              soundManager.playExplosion();
             }
-            soundManager.playExplosion();
           }
         });
       }
@@ -546,6 +660,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       if (obs.type === ObstacleType.FUEL) drawFuelSprite(ctx, obs);
       else if (obs.type === ObstacleType.LIFE) drawHeartSprite(ctx, obs);
       else if (obs.type === ObstacleType.TANK) drawTankSprite(ctx, obs);
+      else if (obs.type === ObstacleType.MINI_BOSS) drawMiniBoss(ctx, obs);
       else if (obs.type === ObstacleType.HELPER_PLANES) drawHelperPlanesPowerUp(ctx, obs);
       else if (obs.type === ObstacleType.GUIDED_ROCKET) drawGuidedRocketPowerUp(ctx, obs);
       else if (obs.type === ObstacleType.SHIELD) drawShieldPowerUp(ctx, obs);
@@ -676,7 +791,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                       <span className="text-2xl font-mono font-bold text-white">{score}</span>
                   </div>
                   <div className="flex gap-1">
-                      {[...Array(livesRef.current)].map((_, i) => <Heart key={i} className="w-5 h-5 fill-red-500 text-red-600" />)}
+                      {[...Array(Math.max(0, Math.min(5, livesRef.current)))].map((_, i) => <Heart key={i} className="w-5 h-5 fill-red-500 text-red-600" />)}
                   </div>
               </div>
               <div className="w-full max-w-md mx-auto bg-gray-800/80 rounded-full h-3 border border-gray-600 overflow-hidden">
