@@ -14,6 +14,7 @@ export enum ObstacleType {
   SHOOTER = 'SHOOTER',
   LIFE = 'LIFE',
   TANK = 'TANK',           // Tank enemy that shoots
+  MINI_BOSS = 'MINI_BOSS', // Mini boss with health bar
   HELPER_PLANES = 'HELPER_PLANES',  // Power-up: side helper planes
   GUIDED_ROCKET = 'GUIDED_ROCKET',  // Power-up: guided missiles
   SHIELD = 'SHIELD'        // Power-up: temporary shield
@@ -37,9 +38,11 @@ export interface Entity {
   color: string;
   speed?: number;
   type?: ObstacleType;
-  vx?: number; 
-  tilt?: number; 
-  lastShot?: number; 
+  vx?: number;
+  tilt?: number;
+  lastShot?: number;
+  health?: number;
+  maxHealth?: number;
 }
 
 export interface Projectile extends Entity {
