@@ -46,16 +46,17 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const riverOffsetRef = useRef<number>(0);
   const scoreRef = useRef<number>(0);
   const frameCountRef = useRef<number>(0);
+  const lastFrameTimeRef = useRef<number>(0);
   const activePowerUpsRef = useRef<PowerUp[]>([]);
   const helperPlanesRef = useRef<HelperPlane[]>([]);
   const shieldActiveRef = useRef<number>(0); // Timestamp when shield expires
 
-  const RIVER_WIDTH_PERCENT = 0.7; 
-  const PLAYER_XY_SPEED = 5;
+  const RIVER_WIDTH_PERCENT = 0.7;
+  const PLAYER_XY_SPEED = 300; // pixels per second (was 5 per frame * 60fps = 300)
   const SPAWN_RATE = 60;
-  const PROJECTILE_SPEED = 12;
+  const PROJECTILE_SPEED = 720; // pixels per second (was 12 per frame * 60fps = 720)
   const PLAYER_FIRE_RATE = 150;
-  const FUEL_CONSUMPTION_RATE = 0.06; 
+  const FUEL_CONSUMPTION_RATE = 3.6; // per second (was 0.06 per frame * 60fps = 3.6) 
 
   const toggleMute = () => {
     const newState = !isMuted;
@@ -326,6 +327,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     livesRef.current = 3; fuelRef.current = 100; scoreRef.current = 0;
     obstaclesRef.current = []; projectilesRef.current = []; particlesRef.current = [];
     activePowerUpsRef.current = []; helperPlanesRef.current = []; shieldActiveRef.current = 0;
+    lastFrameTimeRef.current = 0; // Reset delta time
     setScore(0);
   }, [setScore]);
 
@@ -347,6 +349,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     if (!ctx) return;
     const now = Date.now();
 
+    // Calculate delta time (in seconds)
+    if (lastFrameTimeRef.current === 0) lastFrameTimeRef.current = now;
+    const deltaTime = Math.min((now - lastFrameTimeRef.current) / 1000, 0.1); // Cap at 0.1s to prevent huge jumps
+    lastFrameTimeRef.current = now;
+
     // Input Handling
     const isUp = keysPressed.current['ArrowUp'] || keysPressed.current['KeyW'];
     const isDown = keysPressed.current['ArrowDown'] || keysPressed.current['KeyS'];
@@ -355,10 +362,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     const isShooting = keysPressed.current['Space'];
 
     // Movement & Speed
-    if (isUp) playerRef.current.y -= PLAYER_XY_SPEED;
-    if (isDown) playerRef.current.y += PLAYER_XY_SPEED;
-    if (isLeft) playerRef.current.x -= PLAYER_XY_SPEED;
-    if (isRight) playerRef.current.x += PLAYER_XY_SPEED;
+    const moveAmount = PLAYER_XY_SPEED * deltaTime;
+    if (isUp) playerRef.current.y -= moveAmount;
+    if (isDown) playerRef.current.y += moveAmount;
+    if (isLeft) playerRef.current.x -= moveAmount;
+    if (isRight) playerRef.current.x += moveAmount;
 
     // Clamp player position to canvas bounds
     playerRef.current.y = Math.max(0, Math.min(canvas.height - 40, playerRef.current.y));
@@ -367,15 +375,15 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
     // Increase difficulty every 10,000 points
     const difficultyMultiplier = 1 + Math.floor(scoreRef.current / 10000) * 0.2;
-    baseScrollSpeedRef.current = 3 * difficultyMultiplier;
-    speedRef.current = (isUp ? 6 : (isDown ? 1.5 : 3)) * difficultyMultiplier;
+    baseScrollSpeedRef.current = 180 * difficultyMultiplier; // pixels per second (was 3 per frame * 60fps)
+    speedRef.current = (isUp ? 360 : (isDown ? 90 : 180)) * difficultyMultiplier; // pixels per second
     
     // Shoot
     if (isShooting && now - (playerRef.current.lastShot || 0) > PLAYER_FIRE_RATE) {
       // Player shoots
       projectilesRef.current.push({
         x: playerRef.current.x + 18, y: playerRef.current.y,
-        width: 4, height: 12, color: '#fde047', vx: 0, vy: -PROJECTILE_SPEED, isEnemy: false
+        width: 4, height: 12, color: '#fde047', vx: 0, vy: -PROJECTILE_SPEED / 60, isEnemy: false
       });
       playerRef.current.lastShot = now;
       soundManager.playShoot();
@@ -385,7 +393,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         if (now - helper.lastShot > PLAYER_FIRE_RATE) {
           projectilesRef.current.push({
             x: helper.x + 4, y: helper.y,
-            width: 3, height: 8, color: '#3b82f6', vx: 0, vy: -PROJECTILE_SPEED, isEnemy: false
+            width: 3, height: 8, color: '#3b82f6', vx: 0, vy: -PROJECTILE_SPEED / 60, isEnemy: false
           });
           helper.lastShot = now;
         }
@@ -411,7 +419,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     setActiveGuidedRockets(!!activePowerUpsRef.current.find(pu => pu.type === 'GUIDED_ROCKET'));
 
     // Fuel Consumption
-    fuelRef.current -= FUEL_CONSUMPTION_RATE * (speedRef.current / 3);
+    fuelRef.current -= FUEL_CONSUMPTION_RATE * (speedRef.current / 180) * deltaTime;
     if (fuelRef.current <= 0) handlePlayerDeath();
 
     // River Bounds
@@ -462,8 +470,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
     // Update Entities
     obstaclesRef.current.forEach((obs, i) => {
-      obs.y += speedRef.current;
-      obs.x += obs.vx || 0;
+      obs.y += speedRef.current * deltaTime;
+      obs.x += (obs.vx || 0) * 60 * deltaTime; // vx is stored as pixels per frame, convert to per second
       if (obs.x < riverX || obs.x + 40 > riverRight) obs.vx = -(obs.vx || 0);
 
       // Tanks shoot at player
@@ -472,10 +480,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
           const dx = playerRef.current.x - obs.x;
           const dy = playerRef.current.y - obs.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
+          const bulletSpeed = 480 / 60; // 480 pixels per second / 60 for per-frame velocity
           projectilesRef.current.push({
             x: obs.x + 20, y: obs.y + 20,
             width: 6, height: 6, color: '#ef4444',
-            vx: (dx / dist) * 8, vy: (dy / dist) * 8, isEnemy: true
+            vx: (dx / dist) * bulletSpeed, vy: (dy / dist) * bulletSpeed, isEnemy: true
           });
           obs.lastShot = now;
           soundManager.playShoot();
@@ -488,13 +497,14 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
           const dx = playerRef.current.x - obs.x;
           const dy = playerRef.current.y - obs.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
+          const bulletSpeed = 600 / 60; // 600 pixels per second / 60 for per-frame velocity
           // Shoot 2 projectiles in a spread pattern
           for (let i = 0; i < 2; i++) {
             const angle = Math.atan2(dy, dx) + (i - 0.5) * 0.3;
             projectilesRef.current.push({
               x: obs.x + 20, y: obs.y + 20,
               width: 8, height: 8, color: '#dc2626',
-              vx: Math.cos(angle) * 10, vy: Math.sin(angle) * 10, isEnemy: true
+              vx: Math.cos(angle) * bulletSpeed, vy: Math.sin(angle) * bulletSpeed, isEnemy: true
             });
           }
           obs.lastShot = now;
@@ -580,14 +590,15 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
           const dy = closest.y - p.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
           if (dist > 0) {
-            p.vx = (dx / dist) * 3;
-            p.vy = (dy / dist) * PROJECTILE_SPEED;
+            const trackingSpeed = PROJECTILE_SPEED / 60;
+            p.vx = (dx / dist) * trackingSpeed * 0.25;
+            p.vy = (dy / dist) * trackingSpeed;
           }
         }
       }
 
-      p.y += p.vy;
-      p.x += p.vx;
+      p.y += p.vy * 60 * deltaTime;
+      p.x += p.vx * 60 * deltaTime;
 
       // Enemy projectiles hit player
       if (p.isEnemy && Math.abs(p.x - playerRef.current.x) < 30 && Math.abs(p.y - playerRef.current.y) < 30) {
@@ -648,7 +659,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     ctx.fillRect(riverX, 0, riverRight - riverX, canvas.height);
 
     // River flow lines
-    riverOffsetRef.current = (riverOffsetRef.current + speedRef.current) % 100;
+    riverOffsetRef.current = (riverOffsetRef.current + speedRef.current * deltaTime) % 100;
     ctx.strokeStyle = 'rgba(255,255,255,0.1)';
     for(let i=0; i<10; i++) {
       const yPos = (i * 150 + riverOffsetRef.current * 2) % canvas.height;
@@ -673,7 +684,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     });
 
     particlesRef.current.forEach((p, i) => {
-      p.x += p.vx; p.y += p.vy; p.life--;
+      p.x += p.vx * 60 * deltaTime;
+      p.y += p.vy * 60 * deltaTime;
+      p.life -= 60 * deltaTime;
       ctx.fillStyle = p.color;
       ctx.globalAlpha = p.life / p.maxLife;
       ctx.fillRect(p.x, p.y, p.width, p.height);
