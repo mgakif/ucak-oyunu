@@ -36,6 +36,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const [activeShield, setActiveShield] = useState(false);
   const [activeHelpers, setActiveHelpers] = useState(false);
   const [activeGuidedRockets, setActiveGuidedRockets] = useState(false);
+  const [bossWarning, setBossWarning] = useState(false);
+  const [fuelPaused, setFuelPaused] = useState(false);
   
   const playerRef = useRef<Entity>({ x: 0, y: 0, width: 40, height: 40, color: '#f8fafc', tilt: 0, lastShot: 0 });
   const livesRef = useRef<number>(3);
@@ -54,6 +56,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const activePowerUpsRef = useRef<PowerUp[]>([]);
   const helperPlanesRef = useRef<HelperPlane[]>([]);
   const shieldActiveRef = useRef<number>(0); // Timestamp when shield expires
+  const fuelConsumptionPausedUntilRef = useRef<number>(0); // Timestamp when fuel consumption resumes
+  const lastBossScoreRef = useRef<number>(0); // Track last boss spawn score
+  const bossActiveRef = useRef<boolean>(false); // Is boss currently on screen
 
   const RIVER_WIDTH_PERCENT = 0.7;
   const PLAYER_XY_SPEED = 300; // pixels per second (was 5 per frame * 60fps = 300)
@@ -75,6 +80,24 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       case Difficulty.EASY: return 0.5;
       case Difficulty.MEDIUM: return 0.75;
       case Difficulty.HARD: return 1.0;
+    }
+  };
+
+  // Gem properties: spawn rate, points, color, fuel pause duration
+  const getGemProperties = (gemType: ObstacleType) => {
+    switch (gemType) {
+      case ObstacleType.GEM_COMMON:
+        return { spawnChance: 0.05, points: 50, color: '#e5e7eb', pauseDuration: 3000 }; // 5%
+      case ObstacleType.GEM_UNCOMMON:
+        return { spawnChance: 0.03, points: 150, color: '#10b981', pauseDuration: 5000 }; // 3%
+      case ObstacleType.GEM_RARE:
+        return { spawnChance: 0.015, points: 300, color: '#3b82f6', pauseDuration: 8000 }; // 1.5%
+      case ObstacleType.GEM_EPIC:
+        return { spawnChance: 0.007, points: 600, color: '#a855f7', pauseDuration: 12000 }; // 0.7%
+      case ObstacleType.GEM_LEGENDARY:
+        return { spawnChance: 0.003, points: 1500, color: '#fbbf24', pauseDuration: 20000 }; // 0.3%
+      default:
+        return { spawnChance: 0, points: 0, color: '#fff', pauseDuration: 0 };
     }
   }; 
 
@@ -306,6 +329,204 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     }
   };
 
+  const drawGem = (ctx: CanvasRenderingContext2D, obs: Entity) => {
+    const gemProps = getGemProperties(obs.type!);
+    const size = 8;
+    const centerX = obs.x + 20;
+    const centerY = obs.y + 20;
+
+    // Rotating gem effect
+    const rotation = (frameCountRef.current * 0.05) % (Math.PI * 2);
+
+    ctx.save();
+    ctx.translate(centerX, centerY);
+    ctx.rotate(rotation);
+
+    // Draw diamond shape
+    ctx.fillStyle = gemProps.color;
+    ctx.beginPath();
+    ctx.moveTo(0, -size);
+    ctx.lineTo(size, 0);
+    ctx.lineTo(0, size);
+    ctx.lineTo(-size, 0);
+    ctx.closePath();
+    ctx.fill();
+
+    // Shine effect
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.beginPath();
+    ctx.moveTo(-2, -size + 2);
+    ctx.lineTo(size - 2, -2);
+    ctx.lineTo(-2, size - 2);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
+
+    // Glow effect
+    ctx.shadowColor = gemProps.color;
+    ctx.shadowBlur = 15;
+    ctx.fillStyle = gemProps.color;
+    ctx.fillRect(centerX - 1, centerY - 1, 2, 2);
+    ctx.shadowBlur = 0;
+  };
+
+  const drawSpinner = (ctx: CanvasRenderingContext2D, obs: Entity) => {
+    const centerX = obs.x + 20;
+    const centerY = obs.y + 20;
+    const rotation = obs.rotation || 0;
+
+    ctx.save();
+    ctx.translate(centerX, centerY);
+    ctx.rotate(rotation);
+
+    // Draw rotating enemy ship
+    const W = '#fbbf24'; // Orange/yellow
+    const D = '#92400e'; // Dark brown
+    const T = 'T';
+
+    const spinnerGrid = [
+      [T, T, W, W, T, T],
+      [T, W, D, D, W, T],
+      [W, D, W, W, D, W],
+      [W, D, W, W, D, W],
+      [T, W, D, D, W, T],
+      [T, T, W, W, T, T]
+    ];
+
+    drawPixelSprite(ctx, -12, -12, 4, spinnerGrid);
+    ctx.restore();
+  };
+
+  const drawBoss = (ctx: CanvasRenderingContext2D, obs: Entity) => {
+    const centerX = obs.x + 40;
+    const centerY = obs.y + 40;
+
+    if (obs.type === ObstacleType.BOSS_PLANE) {
+      // Big plane
+      const P = '#cbd5e1';
+      const D = '#64748b';
+      const R = '#ef4444';
+      const T = 'T';
+
+      const planeGrid = [
+        [T, T, T, T, D, D, T, T, T, T],
+        [T, T, T, D, P, P, D, T, T, T],
+        [T, T, D, P, P, P, P, D, T, T],
+        [T, D, P, P, R, R, P, P, D, T],
+        [D, P, P, P, P, P, P, P, P, D],
+        [D, P, P, P, P, P, P, P, P, D],
+        [T, D, P, P, P, P, P, P, D, T],
+        [T, T, D, D, P, P, D, D, T, T],
+        [T, T, T, D, D, D, D, T, T, T]
+      ];
+
+      drawPixelSprite(ctx, obs.x, obs.y, 8, planeGrid);
+    } else if (obs.type === ObstacleType.BOSS_BALLOON) {
+      // Big balloon
+      ctx.fillStyle = '#dc2626';
+      ctx.beginPath();
+      ctx.ellipse(centerX, centerY - 10, 35, 45, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Basket
+      ctx.fillStyle = '#92400e';
+      ctx.fillRect(centerX - 12, centerY + 40, 24, 16);
+
+      // Ropes
+      ctx.strokeStyle = '#78350f';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(centerX - 30, centerY + 20);
+      ctx.lineTo(centerX - 12, centerY + 40);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(centerX + 30, centerY + 20);
+      ctx.lineTo(centerX + 12, centerY + 40);
+      ctx.stroke();
+    } else if (obs.type === ObstacleType.BOSS_BEE) {
+      // Bee boss
+      const Y = '#fbbf24';
+      const B = '#000';
+      const W = '#fff';
+      const T = 'T';
+
+      // Body
+      ctx.fillStyle = Y;
+      ctx.beginPath();
+      ctx.ellipse(centerX, centerY, 30, 25, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Stripes
+      ctx.fillStyle = B;
+      for (let i = 0; i < 3; i++) {
+        ctx.fillRect(centerX - 28, centerY - 15 + i * 15, 56, 8);
+      }
+
+      // Wings
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.beginPath();
+      ctx.ellipse(centerX - 25, centerY - 10, 20, 15, -0.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(centerX + 25, centerY - 10, 20, 15, 0.3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Eyes
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(centerX - 15, centerY - 8, 8, 8);
+      ctx.fillRect(centerX + 7, centerY - 8, 8, 8);
+      ctx.fillStyle = '#000';
+      ctx.fillRect(centerX - 12, centerY - 5, 4, 4);
+      ctx.fillRect(centerX + 10, centerY - 5, 4, 4);
+    } else if (obs.type === ObstacleType.BOSS_FLY) {
+      // Fly boss
+      ctx.fillStyle = '#16a34a';
+      ctx.beginPath();
+      ctx.ellipse(centerX, centerY, 25, 30, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Wings (buzzing)
+      const wingOffset = Math.sin(frameCountRef.current * 0.3) * 5;
+      ctx.fillStyle = 'rgba(200, 255, 200, 0.4)';
+      ctx.beginPath();
+      ctx.ellipse(centerX - 20, centerY + wingOffset, 18, 12, -0.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(centerX + 20, centerY - wingOffset, 18, 12, 0.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Eyes (compound)
+      ctx.fillStyle = '#dc2626';
+      ctx.beginPath();
+      ctx.arc(centerX - 10, centerY - 10, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(centerX + 10, centerY - 10, 8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Draw health bar for all bosses
+    if (obs.health && obs.maxHealth) {
+      const barWidth = 70;
+      const barHeight = 6;
+      const healthPercent = obs.health / obs.maxHealth;
+
+      // Background
+      ctx.fillStyle = '#1f2937';
+      ctx.fillRect(obs.x + 5, obs.y - 20, barWidth, barHeight);
+
+      // Health
+      ctx.fillStyle = healthPercent > 0.5 ? '#10b981' : (healthPercent > 0.25 ? '#f59e0b' : '#ef4444');
+      ctx.fillRect(obs.x + 5, obs.y - 20, barWidth * healthPercent, barHeight);
+
+      // Border
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(obs.x + 5, obs.y - 20, barWidth, barHeight);
+    }
+  };
+
   // --- GAME LOGIC ---
 
   const createExplosion = useCallback((x: number, y: number, color: string, count: number = 20) => {
@@ -348,6 +569,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     obstaclesRef.current = []; projectilesRef.current = []; particlesRef.current = [];
     activePowerUpsRef.current = []; helperPlanesRef.current = []; shieldActiveRef.current = 0;
     lastFrameTimeRef.current = 0; // Reset delta time
+    fuelConsumptionPausedUntilRef.current = 0; // Reset fuel pause
+    lastBossScoreRef.current = 0; // Reset boss tracking
+    bossActiveRef.current = false; // Reset boss active
     setScore(0);
   }, [setScore]);
 
@@ -438,9 +662,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     setActiveHelpers(helperPlanesRef.current.length > 0);
     setActiveGuidedRockets(!!activePowerUpsRef.current.find(pu => pu.type === 'GUIDED_ROCKET'));
 
-    // Fuel Consumption
-    fuelRef.current -= FUEL_CONSUMPTION_RATE * (speedRef.current / 180) * deltaTime;
-    if (fuelRef.current <= 0) handlePlayerDeath();
+    // Fuel Consumption (paused if gem was collected recently)
+    const isFuelPaused = now < fuelConsumptionPausedUntilRef.current;
+    setFuelPaused(isFuelPaused);
+    if (!isFuelPaused) {
+      fuelRef.current -= FUEL_CONSUMPTION_RATE * (speedRef.current / 180) * deltaTime;
+      if (fuelRef.current <= 0) handlePlayerDeath();
+    }
 
     // River Bounds
     const riverX = (canvas.width * (1 - RIVER_WIDTH_PERCENT)) / 2;
@@ -450,27 +678,84 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       handlePlayerDeath();
     }
 
-    // Spawning
+    // Check for Boss Warning (500 points before boss)
+    const nextBossMilestone = lastBossScoreRef.current + 10000;
+    const scoreUntilBoss = nextBossMilestone - scoreRef.current;
+    if (!bossActiveRef.current && scoreUntilBoss <= 500 && scoreUntilBoss > 0) {
+      setBossWarning(true);
+    } else {
+      setBossWarning(false);
+    }
+
+    // Check for Boss Spawn (every 10,000 points)
+    if (!bossActiveRef.current && scoreRef.current >= nextBossMilestone && scoreRef.current > 0) {
+      // Clear all enemies
+      obstaclesRef.current = obstaclesRef.current.filter(obs =>
+        obs.type === ObstacleType.FUEL || obs.type === ObstacleType.LIFE ||
+        obs.type?.startsWith('GEM_') || obs.type?.startsWith('HELPER') ||
+        obs.type === ObstacleType.GUIDED_ROCKET || obs.type === ObstacleType.SHIELD
+      );
+
+      // Spawn boss
+      const bossTypes = [ObstacleType.BOSS_PLANE, ObstacleType.BOSS_BALLOON, ObstacleType.BOSS_BEE, ObstacleType.BOSS_FLY];
+      const bossType = bossTypes[Math.floor(Math.random() * bossTypes.length)];
+      const bossHealth = bossType === ObstacleType.BOSS_PLANE ? 20 :
+                        bossType === ObstacleType.BOSS_BALLOON ? 15 :
+                        bossType === ObstacleType.BOSS_BEE ? 25 : 18;
+
+      obstaclesRef.current.push({
+        x: riverX + (riverRight - riverX) / 2 - 40,
+        y: -150,
+        width: 80,
+        height: 80,
+        color: '',
+        type: bossType,
+        vx: 0,
+        lastShot: 0,
+        health: bossHealth,
+        maxHealth: bossHealth,
+        rotation: 0
+      });
+
+      bossActiveRef.current = true;
+      lastBossScoreRef.current = scoreRef.current;
+      setBossWarning(false);
+    }
+
+    // Spawning (skip if boss active)
     frameCountRef.current++;
     const spawnRate = getDifficultySpawnRate(difficulty);
-    if (frameCountRef.current % spawnRate === 0) {
+    if (!bossActiveRef.current && frameCountRef.current % spawnRate === 0) {
       const typeRoll = Math.random();
       const spawnX = riverX + 10 + Math.random() * (riverRight - riverX - 50);
       let type = ObstacleType.SHIP;
       let health = undefined;
       let maxHealth = undefined;
+      let rotation = undefined;
 
+      // Gems (check each rarity)
+      const gemRoll = Math.random();
+      if (gemRoll < 0.003) type = ObstacleType.GEM_LEGENDARY;
+      else if (gemRoll < 0.01) type = ObstacleType.GEM_EPIC;
+      else if (gemRoll < 0.025) type = ObstacleType.GEM_RARE;
+      else if (gemRoll < 0.055) type = ObstacleType.GEM_UNCOMMON;
+      else if (gemRoll < 0.105) type = ObstacleType.GEM_COMMON;
       // Collectibles and power-ups
-      if (typeRoll < 0.08) type = ObstacleType.FUEL;
+      else if (typeRoll < 0.08) type = ObstacleType.FUEL;
       else if (typeRoll < 0.12) type = ObstacleType.LIFE;
       else if (typeRoll < 0.15) type = ObstacleType.HELPER_PLANES;
       else if (typeRoll < 0.18) type = ObstacleType.GUIDED_ROCKET;
       else if (typeRoll < 0.21) type = ObstacleType.SHIELD;
       // Enemies
-      else if (typeRoll < 0.83) type = ObstacleType.SHIP;
-      else if (typeRoll < 0.95) type = ObstacleType.TANK;
-      else {
-        // Mini boss - 5% spawn rate (reduced from 10%)
+      else if (typeRoll < 0.78) type = ObstacleType.SHIP;
+      else if (typeRoll < 0.88) type = ObstacleType.TANK;
+      else if (typeRoll < 0.93) {
+        // Spinner - rotates and shoots
+        type = ObstacleType.SPINNER;
+        rotation = 0;
+      }
+      else if (typeRoll < 0.98) {
+        // Mini boss - 5% spawn rate
         type = ObstacleType.MINI_BOSS;
         health = 5;
         maxHealth = 5;
@@ -486,7 +771,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         vx: (Math.random()-0.5)*2,
         lastShot: 0,
         health,
-        maxHealth
+        maxHealth,
+        rotation
       });
     }
 
@@ -531,6 +817,89 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
           }
           obs.lastShot = now;
           soundManager.playShoot();
+        }
+      }
+
+      // Spinner enemy - rotates and shoots in rotation direction
+      if (obs.type === ObstacleType.SPINNER && obs.y > 0 && obs.y < canvas.height - 100) {
+        obs.rotation = (obs.rotation || 0) + 3 * deltaTime; // Rotate 3 radians per second
+        if (now - (obs.lastShot || 0) > 800) {
+          const bulletSpeed = 420 / 60;
+          projectilesRef.current.push({
+            x: obs.x + 20, y: obs.y + 20,
+            width: 5, height: 5, color: '#f59e0b',
+            vx: Math.cos(obs.rotation) * bulletSpeed, vy: Math.sin(obs.rotation) * bulletSpeed, isEnemy: true
+          });
+          obs.lastShot = now;
+          soundManager.playShoot();
+        }
+      }
+
+      // Boss behaviors
+      if (obs.type?.startsWith('BOSS_') && obs.y > 0 && obs.y < canvas.height - 100) {
+        // Bosses move side to side
+        if (!obs.vx) obs.vx = 1;
+        obs.x += obs.vx * 60 * deltaTime;
+        if (obs.x < riverX + 10 || obs.x + 80 > riverRight - 10) obs.vx = -obs.vx;
+
+        // Boss shooting patterns
+        if (obs.type === ObstacleType.BOSS_PLANE) {
+          // Shoots 3-way spread
+          if (now - (obs.lastShot || 0) > 1200) {
+            const bulletSpeed = 540 / 60;
+            for (let i = -1; i <= 1; i++) {
+              const angle = Math.PI / 2 + i * 0.4;
+              projectilesRef.current.push({
+                x: obs.x + 40, y: obs.y + 60,
+                width: 10, height: 10, color: '#ef4444',
+                vx: Math.cos(angle) * bulletSpeed, vy: Math.sin(angle) * bulletSpeed, isEnemy: true
+              });
+            }
+            obs.lastShot = now;
+            soundManager.playShoot();
+          }
+        } else if (obs.type === ObstacleType.BOSS_BALLOON) {
+          // Drops bombs
+          if (now - (obs.lastShot || 0) > 1500) {
+            projectilesRef.current.push({
+              x: obs.x + 35, y: obs.y + 70,
+              width: 12, height: 12, color: '#000',
+              vx: 0, vy: 8, isEnemy: true
+            });
+            obs.lastShot = now;
+            soundManager.playShoot();
+          }
+        } else if (obs.type === ObstacleType.BOSS_BEE) {
+          // Fast circular shots
+          if (now - (obs.lastShot || 0) > 600) {
+            const bulletSpeed = 480 / 60;
+            const angle = (now / 200) % (Math.PI * 2);
+            for (let i = 0; i < 4; i++) {
+              const a = angle + (i * Math.PI / 2);
+              projectilesRef.current.push({
+                x: obs.x + 40, y: obs.y + 40,
+                width: 6, height: 6, color: '#eab308',
+                vx: Math.cos(a) * bulletSpeed, vy: Math.sin(a) * bulletSpeed, isEnemy: true
+              });
+            }
+            obs.lastShot = now;
+            soundManager.playShoot();
+          }
+        } else if (obs.type === ObstacleType.BOSS_FLY) {
+          // Aimed shots at player
+          if (now - (obs.lastShot || 0) > 900) {
+            const dx = playerRef.current.x - obs.x;
+            const dy = playerRef.current.y - obs.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const bulletSpeed = 600 / 60;
+            projectilesRef.current.push({
+              x: obs.x + 40, y: obs.y + 40,
+              width: 8, height: 8, color: '#16a34a',
+              vx: (dx / dist) * bulletSpeed, vy: (dy / dist) * bulletSpeed, isEnemy: true
+            });
+            obs.lastShot = now;
+            soundManager.playShoot();
+          }
         }
       }
 
@@ -583,6 +952,15 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         } else if (obs.type === ObstacleType.SHIELD) {
           shieldActiveRef.current = now + 10000;
           soundManager.playCollect();
+          obstaclesRef.current.splice(i, 1);
+        } else if (obs.type?.startsWith('GEM_')) {
+          // Gem collected - give points, fill fuel, pause fuel consumption
+          const gemProps = getGemProperties(obs.type);
+          scoreRef.current += Math.floor(gemProps.points * getDifficultyScoreMultiplier(difficulty));
+          setScore(scoreRef.current);
+          fuelRef.current = 100; // Fill fuel
+          fuelConsumptionPausedUntilRef.current = now + gemProps.pauseDuration;
+          soundManager.playOneUp(); // Special sound for gems
           obstaclesRef.current.splice(i, 1);
         } else if (now > invulnerableUntilRef.current && now > shieldActiveRef.current) {
           handlePlayerDeath();
@@ -637,8 +1015,21 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
           if (Math.abs(p.x - obs.x) < 30 && Math.abs(p.y - obs.y) < 30) {
             projectilesRef.current.splice(pi, 1);
 
+            // Bosses have health
+            if (obs.type?.startsWith('BOSS_') && obs.health) {
+              obs.health -= 1;
+              createExplosion(obs.x, obs.y, '#f97316', 8);
+              if (obs.health <= 0) {
+                createExplosion(obs.x, obs.y, '#dc2626', 60);
+                obstaclesRef.current.splice(oi, 1);
+                scoreRef.current += Math.floor(2000 * getDifficultyScoreMultiplier(difficulty));
+                setScore(scoreRef.current);
+                bossActiveRef.current = false; // Boss defeated
+                soundManager.playExplosion();
+              }
+            }
             // Mini boss has health
-            if (obs.type === ObstacleType.MINI_BOSS && obs.health) {
+            else if (obs.type === ObstacleType.MINI_BOSS && obs.health) {
               obs.health -= 1;
               createExplosion(obs.x, obs.y, '#f97316', 5);
               if (obs.health <= 0) {
@@ -697,6 +1088,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       else if (obs.type === ObstacleType.HELPER_PLANES) drawHelperPlanesPowerUp(ctx, obs);
       else if (obs.type === ObstacleType.GUIDED_ROCKET) drawGuidedRocketPowerUp(ctx, obs);
       else if (obs.type === ObstacleType.SHIELD) drawShieldPowerUp(ctx, obs);
+      else if (obs.type?.startsWith('GEM_')) drawGem(ctx, obs);
+      else if (obs.type === ObstacleType.SPINNER) drawSpinner(ctx, obs);
+      else if (obs.type?.startsWith('BOSS_')) drawBoss(ctx, obs);
       else drawShipSprite(ctx, obs);
     });
 
@@ -881,6 +1275,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                   <div className="h-full bg-gradient-to-r from-red-600 to-green-500 transition-all duration-200" style={{ width: `${fuelRef.current}%` }}></div>
               </div>
               <div className="flex justify-center gap-2 mt-1">
+                  {fuelPaused && (
+                      <div className="bg-purple-900/80 border border-purple-500 px-2 py-1 rounded animate-pulse">
+                          <span className="text-[8px] text-purple-300 pixel-font">💎 GEM EFFECT</span>
+                      </div>
+                  )}
                   {activeShield && (
                       <div className="bg-cyan-900/80 border border-cyan-500 px-2 py-1 rounded flex items-center gap-1">
                           <Shield className="w-3 h-3 text-cyan-400" />
@@ -898,6 +1297,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                       </div>
                   )}
               </div>
+
+              {bossWarning && (
+                  <div className="bg-red-900/90 border-2 border-red-500 px-4 py-2 rounded animate-pulse mt-4">
+                      <span className="text-sm text-red-200 pixel-font font-bold">⚠️ BOSS GELİYOR! ⚠️</span>
+                  </div>
+              )}
           </div>
       )}
     </div>
