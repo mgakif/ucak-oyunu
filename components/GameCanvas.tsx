@@ -38,6 +38,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const [activeGuidedRockets, setActiveGuidedRockets] = useState(false);
   const [bossWarning, setBossWarning] = useState(false);
   const [fuelPaused, setFuelPaused] = useState(false);
+  const [showTutorialTip, setShowTutorialTip] = useState(false);
   
   const playerRef = useRef<Entity>({ x: 0, y: 0, width: 40, height: 40, color: '#f8fafc', tilt: 0, lastShot: 0 });
   const livesRef = useRef<number>(3);
@@ -60,6 +61,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const lastBossScoreRef = useRef<number>(0); // Track last boss spawn score
   const bossActiveRef = useRef<boolean>(false); // Is boss currently on screen
   const lastParryTimeRef = useRef<number>(0); // Last time parry was executed
+  const gameStartTimeRef = useRef<number>(0); // When the current game started
   const [showParry, setShowParry] = useState(false);
 
   const RIVER_WIDTH_PERCENT = 0.7;
@@ -574,6 +576,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     fuelConsumptionPausedUntilRef.current = 0; // Reset fuel pause
     lastBossScoreRef.current = 0; // Reset boss tracking
     bossActiveRef.current = false; // Reset boss active
+    gameStartTimeRef.current = Date.now(); // Track game start time
+    setShowTutorialTip(true); // Show tutorial tip
+    setTimeout(() => setShowTutorialTip(false), 30000); // Hide after 30 seconds
     setScore(0);
   }, [setScore]);
 
@@ -1368,6 +1373,21 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
               {bossWarning && (
                   <div className="bg-red-900/90 border-2 border-red-500 px-4 py-2 rounded animate-pulse mt-4">
                       <span className="text-sm text-red-200 pixel-font font-bold">⚠️ BOSS GELİYOR! ⚠️</span>
+                  </div>
+              )}
+
+              {/* Tutorial Tip - First 30 seconds */}
+              {showTutorialTip && (
+                  <div className="bg-gradient-to-r from-cyan-900/90 to-blue-900/90 border-2 border-cyan-400 px-4 py-3 rounded-lg mt-4 animate-pulse">
+                      <div className="text-center">
+                          <span className="text-sm text-cyan-200 pixel-font font-bold">💡 İPUCU</span>
+                          <div className="text-xs text-white pixel-font mt-1">
+                              Düşman mermisi <span className="text-cyan-300 font-bold">yakınken</span> ateş et
+                          </div>
+                          <div className="text-xs text-cyan-300 pixel-font font-bold mt-1">
+                              ⚔️ PARRY! = +300 PUAN
+                          </div>
+                      </div>
                   </div>
               )}
 
