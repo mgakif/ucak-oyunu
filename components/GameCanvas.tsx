@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { GameState, Entity, Particle, ObstacleType, Projectile, LeaderboardEntry, PowerUp, HelperPlane } from '../types';
+import { GameState, Entity, Particle, ObstacleType, Projectile, LeaderboardEntry, PowerUp, HelperPlane, Difficulty } from '../types';
 import { Play, RotateCcw, Volume2, VolumeX, Heart, Globe, Shield } from 'lucide-react';
 import { soundManager } from '../utils/audio';
 
@@ -13,17 +13,21 @@ interface GameCanvasProps {
   leaderboard: LeaderboardEntry[];
   playerRank: number | null;
   onLogin: (name: string) => void;
+  difficulty: Difficulty;
+  setDifficulty: (difficulty: Difficulty) => void;
 }
 
-const GameCanvas: React.FC<GameCanvasProps> = ({ 
-  gameState, 
-  setGameState, 
-  score, 
+const GameCanvas: React.FC<GameCanvasProps> = ({
+  gameState,
+  setGameState,
+  score,
   setScore,
   username,
   leaderboard,
   playerRank,
-  onLogin
+  onLogin,
+  difficulty,
+  setDifficulty
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number>(null);
@@ -53,10 +57,26 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
   const RIVER_WIDTH_PERCENT = 0.7;
   const PLAYER_XY_SPEED = 300; // pixels per second (was 5 per frame * 60fps = 300)
-  const SPAWN_RATE = 60;
   const PROJECTILE_SPEED = 720; // pixels per second (was 12 per frame * 60fps = 720)
   const PLAYER_FIRE_RATE = 150;
-  const FUEL_CONSUMPTION_RATE = 3.6; // per second (was 0.06 per frame * 60fps = 3.6) 
+  const FUEL_CONSUMPTION_RATE = 3.6; // per second (was 0.06 per frame * 60fps = 3.6)
+
+  // Difficulty settings
+  const getDifficultySpawnRate = (diff: Difficulty) => {
+    switch (diff) {
+      case Difficulty.EASY: return 120; // Half as many enemies
+      case Difficulty.MEDIUM: return 90; // 33% fewer enemies
+      case Difficulty.HARD: return 60; // Normal spawn rate
+    }
+  };
+
+  const getDifficultyScoreMultiplier = (diff: Difficulty) => {
+    switch (diff) {
+      case Difficulty.EASY: return 0.5;
+      case Difficulty.MEDIUM: return 0.75;
+      case Difficulty.HARD: return 1.0;
+    }
+  }; 
 
   const toggleMute = () => {
     const newState = !isMuted;
@@ -431,7 +451,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
     // Spawning
     frameCountRef.current++;
-    if (frameCountRef.current % SPAWN_RATE === 0) {
+    const spawnRate = getDifficultySpawnRate(difficulty);
+    if (frameCountRef.current % spawnRate === 0) {
       const typeRoll = Math.random();
       const spawnX = riverX + 10 + Math.random() * (riverRight - riverX - 50);
       let type = ObstacleType.SHIP;
@@ -622,7 +643,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
               if (obs.health <= 0) {
                 createExplosion(obs.x, obs.y, '#dc2626', 30);
                 obstaclesRef.current.splice(oi, 1);
-                scoreRef.current += 500; // More points for mini boss
+                scoreRef.current += Math.floor(500 * getDifficultyScoreMultiplier(difficulty));
                 setScore(scoreRef.current);
                 soundManager.playExplosion();
               }
@@ -633,7 +654,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
               if (obs.type !== ObstacleType.FUEL && obs.type !== ObstacleType.LIFE &&
                   obs.type !== ObstacleType.HELPER_PLANES && obs.type !== ObstacleType.GUIDED_ROCKET &&
                   obs.type !== ObstacleType.SHIELD) {
-                scoreRef.current += 100;
+                scoreRef.current += Math.floor(100 * getDifficultyScoreMultiplier(difficulty));
                 setScore(scoreRef.current);
               }
               soundManager.playExplosion();
@@ -771,14 +792,62 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             <div className="w-full max-w-xs bg-gray-900/50 border-2 border-yellow-900/30 p-4 mb-8 rounded">
                <h2 className="pixel-font text-[10px] text-yellow-600 mb-4 flex items-center justify-center gap-2"><Globe size={14} /> LİDERLER</h2>
                <div className="space-y-2">
-                 {leaderboard.map((entry, i) => (
-                   <div key={i} className="flex justify-between text-xs font-mono">
-                      <span className="text-gray-400">{i+1}. {entry.username}</span>
-                      <span className="text-white">{entry.score}</span>
-                   </div>
-                 ))}
+                 {leaderboard.map((entry, i) => {
+                   const diffColor = entry.difficulty === Difficulty.EASY ? 'text-green-400' :
+                                   entry.difficulty === Difficulty.MEDIUM ? 'text-yellow-400' :
+                                   'text-red-400';
+                   const diffLabel = entry.difficulty === Difficulty.EASY ? 'K' :
+                                   entry.difficulty === Difficulty.MEDIUM ? 'O' : 'Z';
+                   return (
+                     <div key={i} className="flex justify-between text-xs font-mono">
+                        <span className="text-gray-400 flex items-center gap-2">
+                          {i+1}. {entry.username}
+                          <span className={`${diffColor} text-[8px] font-bold`}>[{diffLabel}]</span>
+                        </span>
+                        <span className="text-white">{entry.score}</span>
+                     </div>
+                   );
+                 })}
                </div>
             </div>
+
+            {/* Difficulty Selection */}
+            <div className="mb-6">
+              <h3 className="pixel-font text-xs text-yellow-400 mb-3">ZORLUK SEVİYESİ</h3>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setDifficulty(Difficulty.EASY)}
+                  className={`px-4 py-2 pixel-font text-xs transition ${
+                    difficulty === Difficulty.EASY
+                      ? 'bg-green-600 text-white'
+                      : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                  }`}
+                >
+                  KOLAY
+                </button>
+                <button
+                  onClick={() => setDifficulty(Difficulty.MEDIUM)}
+                  className={`px-4 py-2 pixel-font text-xs transition ${
+                    difficulty === Difficulty.MEDIUM
+                      ? 'bg-yellow-600 text-white'
+                      : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                  }`}
+                >
+                  ORTA
+                </button>
+                <button
+                  onClick={() => setDifficulty(Difficulty.HARD)}
+                  className={`px-4 py-2 pixel-font text-xs transition ${
+                    difficulty === Difficulty.HARD
+                      ? 'bg-red-600 text-white'
+                      : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                  }`}
+                >
+                  ZOR
+                </button>
+              </div>
+            </div>
+
             <button onClick={() => setGameState(GameState.PLAYING)} className="px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white pixel-font text-sm flex items-center gap-3 transition">
                 <Play className="w-4 h-4 fill-current" /><span>BAŞLA</span>
             </button>

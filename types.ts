@@ -5,6 +5,12 @@ export enum GameState {
   GAME_OVER = 'GAME_OVER'
 }
 
+export enum Difficulty {
+  EASY = 'EASY',
+  MEDIUM = 'MEDIUM',
+  HARD = 'HARD'
+}
+
 export enum ObstacleType {
   STATIC = 'STATIC',
   MOVING = 'MOVING',
@@ -23,6 +29,7 @@ export enum ObstacleType {
 export interface LeaderboardEntry {
   username: string;
   score: number;
+  difficulty: Difficulty;
 }
 
 export interface Point {
