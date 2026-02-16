@@ -69,7 +69,8 @@ export interface Entity {
 export interface Projectile extends Entity {
   vx: number;
   vy: number;
-  isEnemy: boolean; 
+  isEnemy: boolean;
+  parried?: boolean;  // True if this projectile was parried
 }
 
 export interface Particle extends Entity {

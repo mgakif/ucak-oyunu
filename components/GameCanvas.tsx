@@ -59,6 +59,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const fuelConsumptionPausedUntilRef = useRef<number>(0); // Timestamp when fuel consumption resumes
   const lastBossScoreRef = useRef<number>(0); // Track last boss spawn score
   const bossActiveRef = useRef<boolean>(false); // Is boss currently on screen
+  const lastParryTimeRef = useRef<number>(0); // Last time parry was executed
+  const [showParry, setShowParry] = useState(false);
 
   const RIVER_WIDTH_PERCENT = 0.7;
   const PLAYER_XY_SPEED = 300; // pixels per second (was 5 per frame * 60fps = 300)
@@ -624,7 +626,47 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     
     // Shoot
     if (isShooting && now - (playerRef.current.lastShot || 0) > PLAYER_FIRE_RATE) {
-      // Player shoots
+      // PARRY DETECTION: Check for nearby enemy projectiles
+      const PARRY_DISTANCE = 50; // pixels
+      let parriedCount = 0;
+
+      projectilesRef.current.forEach((proj) => {
+        if (proj.isEnemy && !proj.parried) {
+          const dx = proj.x - playerRef.current.x;
+          const dy = proj.y - playerRef.current.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+
+          // PARRY! Enemy projectile is close enough
+          if (distance <= PARRY_DISTANCE) {
+            // Reverse the projectile - it's now ours!
+            proj.isEnemy = false;
+            proj.parried = true;
+            proj.vy = -Math.abs(proj.vy); // Always go up
+            proj.vx = proj.vx * 0.5; // Reduce horizontal speed
+            proj.color = '#00ffff'; // Cyan color for parried bullets
+            proj.width = 6;
+            proj.height = 6;
+
+            // Bonus points!
+            scoreRef.current += Math.floor(300 * getDifficultyScoreMultiplier(difficulty));
+            setScore(scoreRef.current);
+
+            // Epic particle explosion
+            createExplosion(proj.x, proj.y, '#00ffff', 15);
+            createExplosion(playerRef.current.x + 20, playerRef.current.y, '#fde047', 10);
+
+            parriedCount++;
+            soundManager.playCollect(); // Satisfying sound
+
+            // Show PARRY indicator
+            lastParryTimeRef.current = now;
+            setShowParry(true);
+            setTimeout(() => setShowParry(false), 500); // Show for 0.5s
+          }
+        }
+      });
+
+      // Player shoots (only if no parry happened, or always shoot)
       projectilesRef.current.push({
         x: playerRef.current.x + 18, y: playerRef.current.y,
         width: 4, height: 12, color: '#fde047', vx: 0, vy: -PROJECTILE_SPEED / 60, isEnemy: false
@@ -1109,8 +1151,19 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     });
 
     projectilesRef.current.forEach(p => {
+      // Parried projectiles get a glow effect
+      if (p.parried) {
+        ctx.shadowColor = '#00ffff';
+        ctx.shadowBlur = 15;
+      }
+
       ctx.fillStyle = p.color;
       ctx.fillRect(p.x, p.y, p.width, p.height);
+
+      // Reset shadow
+      if (p.parried) {
+        ctx.shadowBlur = 0;
+      }
     });
 
     particlesRef.current.forEach((p, i) => {
@@ -1315,6 +1368,17 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
               {bossWarning && (
                   <div className="bg-red-900/90 border-2 border-red-500 px-4 py-2 rounded animate-pulse mt-4">
                       <span className="text-sm text-red-200 pixel-font font-bold">⚠️ BOSS GELİYOR! ⚠️</span>
+                  </div>
+              )}
+
+              {/* PARRY Indicator */}
+              {showParry && (
+                  <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none">
+                      <div className="animate-ping absolute inset-0 bg-cyan-400 rounded-full opacity-75"></div>
+                      <div className="relative bg-gradient-to-r from-cyan-500 to-blue-500 border-4 border-cyan-300 px-8 py-4 rounded-lg shadow-2xl">
+                          <span className="text-4xl font-bold text-white pixel-font drop-shadow-lg">⚔️ PARRY! ⚔️</span>
+                          <div className="text-center text-cyan-200 text-xs pixel-font mt-1">+300 BONUS</div>
+                      </div>
                   </div>
               )}
           </div>
