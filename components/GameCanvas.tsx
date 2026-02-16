@@ -778,7 +778,18 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
     // Update Entities
     obstaclesRef.current.forEach((obs, i) => {
-      obs.y += speedRef.current * deltaTime;
+      // Boss special movement - only move down until upper half, then stay there
+      if (obs.type?.startsWith('BOSS_')) {
+        const maxBossY = canvas.height * 0.35; // Upper 35% of screen
+        if (obs.y < maxBossY) {
+          obs.y += 120 * deltaTime; // Slower descent than normal scroll
+        }
+        // Boss already handles x movement in its behavior section below
+      } else {
+        // Normal obstacles scroll down
+        obs.y += speedRef.current * deltaTime;
+      }
+
       obs.x += (obs.vx || 0) * 60 * deltaTime; // vx is stored as pixels per frame, convert to per second
       if (obs.x < riverX || obs.x + 40 > riverRight) obs.vx = -(obs.vx || 0);
 
@@ -966,7 +977,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
           handlePlayerDeath();
         }
       }
-      if (obs.y > canvas.height + 100) obstaclesRef.current.splice(i, 1);
+      // Remove obstacles that went off screen (but not bosses, they stay at top)
+      if (obs.y > canvas.height + 100 && !obs.type?.startsWith('BOSS_')) {
+        obstaclesRef.current.splice(i, 1);
+      }
     });
 
     projectilesRef.current.forEach((p, pi) => {
