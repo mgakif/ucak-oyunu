@@ -693,7 +693,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
     // Update Helper Planes positions
     helperPlanesRef.current.forEach((helper, idx) => {
-      const xOffset = helper.side === 'left' ? -25 : 65;
+      // Inner helpers (offsetY -30) closer, outer helpers (offsetY -50) farther
+      const isInner = helper.offsetY === -30;
+      const xOffset = helper.side === 'left'
+        ? (isInner ? -25 : -40)  // Left side: -25 for inner, -40 for outer
+        : (isInner ? 65 : 80);    // Right side: 65 for inner, 80 for outer
       helper.x = playerRef.current.x + xOffset;
       helper.y = playerRef.current.y + helper.offsetY;
     });
