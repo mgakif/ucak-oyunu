@@ -59,7 +59,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const PLAYER_XY_SPEED = 300; // pixels per second (was 5 per frame * 60fps = 300)
   const PROJECTILE_SPEED = 720; // pixels per second (was 12 per frame * 60fps = 720)
   const PLAYER_FIRE_RATE = 150;
-  const FUEL_CONSUMPTION_RATE = 3.6; // per second (was 0.06 per frame * 60fps = 3.6)
+  const FUEL_CONSUMPTION_RATE = 1.8; // per second (reduced from 3.6 for better gameplay)
 
   // Difficulty settings
   const getDifficultySpawnRate = (diff: Difficulty) => {
