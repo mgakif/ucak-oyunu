@@ -445,7 +445,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     // River Bounds
     const riverX = (canvas.width * (1 - RIVER_WIDTH_PERCENT)) / 2;
     const riverRight = canvas.width - riverX;
-    if (now > invulnerableUntilRef.current && (playerRef.current.x < riverX || playerRef.current.x + 40 > riverRight)) {
+    if (now > invulnerableUntilRef.current && now > shieldActiveRef.current &&
+        (playerRef.current.x < riverX || playerRef.current.x + 40 > riverRight)) {
       handlePlayerDeath();
     }
 
@@ -467,9 +468,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       else if (typeRoll < 0.21) type = ObstacleType.SHIELD;
       // Enemies
       else if (typeRoll < 0.83) type = ObstacleType.SHIP;
-      else if (typeRoll < 0.90) type = ObstacleType.TANK;
+      else if (typeRoll < 0.95) type = ObstacleType.TANK;
       else {
-        // Mini boss - spawn every ~10 enemies
+        // Mini boss - 5% spawn rate (reduced from 10%)
         type = ObstacleType.MINI_BOSS;
         health = 5;
         maxHealth = 5;
